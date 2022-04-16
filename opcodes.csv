@@ -417,4 +417,5 @@ opcode,mnemonic,address_mode,chiptype
 0xfb,%nop,imp1,1
 0xfc,%nop,abx,1
 0xff,%nop,imp1,1
-
+0xcb,%nop,imp1,2
+0xdb,%nop,imp1,2
