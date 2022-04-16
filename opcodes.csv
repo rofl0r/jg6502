@@ -42,7 +42,7 @@ opcode,mnemonic,address_mode,chiptype
 0xff,bbs7,zprel,2
 0xb0,bcs,rel,0
 0xf0,beq,rel,0
-0x89,bit,imm,0
+0x89,bit,imm,1
 0x24,bit,zp,0
 0x34,bit,zpx,1
 0x2c,bit,abs,0
