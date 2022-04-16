@@ -398,12 +398,12 @@ opcode,mnemonic,address_mode,chiptype
 0xc2,%nop,imm,1
 0xc3,%nop,imp1,1
 0xc7,%nop,imp1,1
-0xcb,+wai,imp1,1
+0xcb,wai,imp1,1
 0xcf,%nop,imp1,1
 0xd3,%nop,imp1,1
 0xd4,%nop,zpx,1
 0xd7,%nop,imp1,1
-0xdb,+stp,imp1,1
+0xdb,stp,imp1,1
 0xdc,%nop,abs,1
 0xdf,%nop,imp1,1
 0xe2,%nop,imm,1
