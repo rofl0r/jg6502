@@ -53,7 +53,7 @@ opcode,mnemonic,address_mode,chiptype
 0x80,bra,rel,1
 0x00,brk,imp1,0
 0x44,bsr,rel,3
-0x70,bvs,rel,3
+0x70,bvs,rel,0
 0x50,bvc,rel,0
 0x18,clc,imp1,0
 0x62,cla,imp1,3
@@ -181,7 +181,7 @@ opcode,mnemonic,address_mode,chiptype
 0xf9,sbc,aby,0
 0xf8,sed,imp1,0
 0x38,sec,imp1,0
-0x78,sei,imp1,3
+0x78,sei,imp1,0
 0xf4,set,imp1,3
 0x03,st0,imm,3
 0x13,st1,imm,3
