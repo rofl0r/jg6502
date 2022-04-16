@@ -202,7 +202,7 @@ opcode,mnemonic,address_mode,cycles
 0xc8,iny,imp1,2
 0xc9,cmp,imm,2
 0xca,dex,imp1,2
-0xcb,wai,imp1,3
+0xcb,nop,imp1,1
 0xcc,cpy,abs,4
 0xcd,cmp,abs,4
 0xce,dec,abs,6
@@ -218,7 +218,7 @@ opcode,mnemonic,address_mode,cycles
 0xd8,cld,imp1,2
 0xd9,cmp,aby,4
 0xda,phx,imp1,3
-0xdb,stp,imp1,3
+0xdb,nop,imp1,1
 0xdc,nop,abs,4
 0xdd,cmp,abx,4
 0xde,dec,abx,7
