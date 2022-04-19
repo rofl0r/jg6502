@@ -87,9 +87,11 @@ def calcaddr(addrmode):
 	return addr_code[addrmode]
 
 cpu = int(sys.argv[1])
-no_undocumented = os.environ['NOUNDOC'] if 'NOUNDOC' in os.environ else False
+no_undocumented = os.environ['NOUNDOC'] if 'NOUNDOC' in os.environ else 0
 # XXX debug
 no_undocumented = 1
+# 65c02 have no undocumented opcodes, all prev. undoc. are nops
+if cpu > 0 and cpu != 3: no_undocumented = 0
 
 def return_all(row, ctx):
 	return 1
@@ -135,7 +137,7 @@ def main():
 
 		comment = ''
 		out.write('\tOPDEF(0x%02x, %s),%s\n'%(x, target, comment))
-	out.close
+	out.close()
 
 	out = open('oplabels.h', 'w')
 	labels = {}
@@ -159,7 +161,12 @@ def main():
 		addr = calcaddr(addrmode[x]) # address mode boilerplate
 		out.write('\tlab_%s: am = am_%s; TRACE("%s", am_%s); cpu->pc += %d; %s; %s; cyc += %d; CHKDONE(); DISPATCH();\n'% \
 		(target, addrmode[x], opmap[x], addrmode[x], pcbytes[addrmode[x]], addr, op, cycles[cpu][x]))
-	out.close
+	out.close()
+
+	tmap = { 0: '6502', 1: '65C02', 2: 'R65C02', 3: 'HUC6280' }
+	out = open('cpu65type.h', 'w')
+	out.write('#define CPU_TYPE CPU_TYPE_%s\n'%tmap[cpu])
+	out.close()
 
 # cat oplabels.h | grep OP_ | sed -E 's/.*OP_/OP_/' | sed 's/;.*//' | awk '{print "#define " $0}' | sort -u
 

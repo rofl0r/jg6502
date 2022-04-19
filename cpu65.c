@@ -10,6 +10,8 @@
 #define CPU_TYPE_R65C02 2
 #define CPU_TYPE_HUC6280 3
 
+#include "cpu65type.h"
+
 #ifndef CPU_TYPE
 #error need to set CPU_TYPE to one of the above list
 #endif
@@ -52,16 +54,20 @@
 #define T_INIT 0
 #define B_INIT 0
 #define PLP_MASK 0xff
-#define INT_MASK (0xff & ~(D_FLAG|T_FLAG))
+#define INT_MASK (~(D_FLAG|T_FLAG))
 #define INT_VEC 0xfff6
 #else
 #define PC_MAX_FETCH 4
 #define T_INIT 1
 #define B_INIT 1
-#define PLP_MASK (N_FLAG|Z_FLAG|C_FLAG|I_FLAG|D_FLAG|V_FLAG)
-#define INT_MASK (0xff & ~(D_FLAG))
 // vector locations for HW interrupts: FFFE for the IRQ and FFFA for the NMI
 #define INT_VEC 0xfffe
+#define PLP_MASK (N_FLAG|Z_FLAG|C_FLAG|I_FLAG|D_FLAG|V_FLAG)
+# if CPU_TYPE > 0
+# define INT_MASK (~(D_FLAG))
+# else
+# define INT_MASK 0xff
+# endif
 #endif
 
 /* abbreviations:
@@ -210,7 +216,8 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 	case am_zpx:   m = &cpu->zp[(op.pb[0] + X)&0xff]; break; \
 	case am_zpy:   m = &cpu->zp[(op.pb[0] + Y)&0xff]; break; \
 	case am_zprel: abort() ; break; \
-	case am_ind:   abort() ; break; \
+	case am_ind:	GET_W_ZP(op.pb[0]); \
+			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_izx:	GET_W_ZP((op.pb[0] + X)&0xff); \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_izy:	GET_W_ZP(op.pb[0]); addr += Y; \
@@ -236,6 +243,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 
 #define SET_M(AM, VAL) \
 	switch(AM) { \
+	case am_ind: \
 	case am_izx: \
 	case am_izy: \
 	case am_abx: \
@@ -255,7 +263,6 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 	case am_imp3: break; \
 	case am_imm: break; \
 	case am_zprel: break; \
-	case am_ind: break; \
 	case am_abs: break; \
 	case am_abx: break; \
 	case am_aby: break; \
@@ -291,28 +298,40 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 
 
 #define OP_ADC()	GET_M(am); tmp = A + M + C; \
-			if(BCD && D) { Z = ((u8)tmp == 0); \
+			if(BCD && D) { if(CPU_TYPE == 0) Z = ((u8)tmp == 0); \
 			if (((A & 0xf) + (M & 0xf) + C) > 9) tmp += 6; \
 			V = !((A ^ M) & 0x80) && ((A ^ tmp) & 0x80); \
-			N = !!(tmp & 0x80); if (tmp > 0x99) tmp += 96; \
-			C = tmp>0x99; A = tmp; } else { \
+			if(CPU_TYPE == 0) N = !!(tmp & 0x80); \
+			else /* N = (tmp >= 0x120) */ ; \
+			if (tmp > 0x99) tmp += 96; \
+			C = tmp>0x99; A = tmp; \
+			if(CPU_TYPE != 0) { Z = (A==0); N = !!(A & 0x80); }\
+			} else { \
 			V = !((A ^ M) & 0x80) && ((A ^ tmp) & 0x80); \
 			C = tmp>0xff; A = tmp; SET_ZN(A); }
 #define OP_AND()	GET_M(am); A = A & M ; SET_ZN(A)
 #define OP_ASL()	GET_M(am); C = !!(M & 0x80); tmp = M << 1; \
 			SET_M(am, tmp); SET_ZN(M)
+#define OP_BBR(BIT)	if(!(cpu->zp[op.pb[0]] & (1 << BIT))) BRANCH8(op.pb[1])
+#define OP_BBS(BIT)	if(cpu->zp[op.pb[0]] & (1 << BIT)) BRANCH8(op.pb[1])
 #define OP_BCC()	if(!C) BRANCH8(op.pb[0])
 #define OP_BCS()	if(C) BRANCH8(op.pb[0])
 #define OP_BEQ()	if(Z) BRANCH8(op.pb[0])
+			/* attention: BIT imm (added to 65c02) only affects Z
+			   http://www.6502.org/tutorials/65c02opcodes.html
+			   this might be different on HuC6280, official doc
+			   doesn't mention anything being different for imm */
 #define OP_BIT()	GET_M(am); tmp = A & M; Z=(tmp == 0); \
-			N=!!(M & 0x80); V=!!(M & 0x40)
+			if(am != am_imm) {N=!!(M & 0x80); V=!!(M & 0x40);}
 #define OP_BMI()	if(N) BRANCH8(op.pb[0])
 #define OP_BNE()	if(!Z) BRANCH8(op.pb[0])
 #define OP_BPL()	if(!N) BRANCH8(op.pb[0])
+#define OP_BRA()	BRANCH8(op.pb[0])
 #define OP_BRK()	++PC; PUSH(cpu->pch); PUSH(cpu->pcl); \
 			PUSH(pack_flags(cpu)|B_FLAG); \
 			CPU_READ_N(&op.pb[0], INT_VEC, 2); \
-			PC = MAKELE16(op.pw[0]); T = T_INIT; D = 0; I = 1; B = 1
+			PC = MAKELE16(op.pw[0]); T = T_INIT; I = 1; B = 1; \
+			if(!(INT_MASK & D_FLAG)) D = 0
 #define OP_BVC()	if(!V) BRANCH8(op.pb[0])
 #define OP_BVS()	if(V) BRANCH8(op.pb[0])
 #define OP_CLC()	C = 0
@@ -346,6 +365,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_PLP()	unpack_flags(cpu, POP() & PLP_MASK)
 #define OP_PLX()	X = POP() ; SET_ZN(X)
 #define OP_PLY()	Y = POP() ; SET_ZN(Y)
+#define OP_RMB(BIT)	cpu->zp[op.pb[0]] &= ~(1 << BIT)
 #define OP_ROL()	GET_M(am); tmp = C; C = !!(M & 0x80); tmp |= (M << 1); \
 			SET_M(am, tmp); SET_ZN(M)
 #define OP_ROR()	GET_M(am); tmp2 = M & 1; tmp = (C << 7) | (M >> 1); \
@@ -354,26 +374,44 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_RTS()	cpu->pcl = POP(); cpu->pch = POP(); ++PC;
 #define OP_SAX()	tmp = A; A = X; X = tmp
 #define OP_SAY()	tmp = A; A = Y; Y = tmp
-#define OP_SBC()	GET_M(am); tmp = A - M - (!C); SET_ZN((u8)tmp); \
+#define OP_SBC()	GET_M(am); tmp = A - M - (!C); \
 			V = !!(((A ^ tmp) & 0x80) && ((A ^ M) & 0x80)); \
-			if(BCD && D) { if (((A & 0xf) - (!C)) < (M & 0xf)) tmp -= 6; \
+			SET_ZN((u8)tmp); \
+			if(BCD && D) { \
+			if (((A & 0xf) - (!C)) < (M & 0xf)) tmp -= 6; \
 			if (tmp > 0x99) tmp -= 0x60; } \
-			C = ((int)tmp >= 0); A = tmp ;
+			C = ((int)tmp >= 0); A = tmp
 #define OP_SEC()	C = 1
 #define OP_SED()	D = 1
 #define OP_SEI()	I = 1
 #define OP_SET()	T = 1
+#define OP_SMB(BIT)	cpu->zp[op.pb[0]] |= (1 << BIT)
 #define OP_STA()	GET_M(am); SET_M(am, A)
+#define OP_STP()	break // TODO this stops the cpu, and needs a reset. should this set some internal flag?
 #define OP_STX()	GET_M(am); SET_M(am, X)
 #define OP_STY()	GET_M(am); SET_M(am, Y)
 #define OP_STZ()	GET_M(am); SET_M(am, 0)
 #define OP_SXY()	tmp = X; X = Y; Y = tmp
 #define OP_TAX()	X = A; SET_ZN(A)
 #define OP_TAY()	Y = A; SET_ZN(A)
+#define OP_TRB()	GET_M(am); tmp = (~A) & M; Z = (!(A & M)); SET_M(am, tmp)
+			/* warning: the documentation of HuC6280 states quite
+			   different behaviour than 65c02 - memory is NOT written
+			   back, V & M are set from "memory" - before or after
+			   the operation is unclear, and Z is supposedly set from
+			   tmp - which makes more sense than 65c02 behaviour. */
+#define OP_TRB_HUCXXX()	GET_M(am); tmp = (~A) & M; N = !!(tmp & 0x80); \
+			V = !!(tmp & 0x40); Z = (tmp == 0)
+			/* in this case, the huc documentation says the value
+			   IS stored in memory, but VN are set from memory,
+			   additionally to what 65c02 does; Z behaviour isn't
+			   explained. */
+#define OP_TSB()	GET_M(am); tmp = A | M ; Z = (!(A & M)); SET_M(am, tmp)
 #define OP_TSX()	X = cpu->s; SET_ZN(X)
 #define OP_TXA()	A = X; SET_ZN(A)
 #define OP_TXS()	cpu->s = X
 #define OP_TYA()	A = Y; SET_ZN(A)
+#define OP_WAI()	break // TODO: wait for interrupt - we should probably set a flag
 
 #ifdef CPU_DEBUG
 #include <stdio.h>
