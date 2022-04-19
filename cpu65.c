@@ -56,10 +56,12 @@
 #define PLP_MASK 0xff
 #define INT_MASK (~(D_FLAG|T_FLAG))
 #define INT_VEC 0xfff6
+#define BR_PENALTY 2
 #else
 #define PC_MAX_FETCH 4
 #define T_INIT 1
 #define B_INIT 1
+#define BR_PENALTY 1
 // vector locations for HW interrupts: FFFE for the IRQ and FFFA for the NMI
 #define INT_VEC 0xfffe
 #define PLP_MASK (N_FLAG|Z_FLAG|C_FLAG|I_FLAG|D_FLAG|V_FLAG)
@@ -276,7 +278,8 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 	}
 #endif
 
-#define BRANCH8(VAL)	PC += (signed char)VAL
+#define BRANCH8P(VL, PN)do {PC += (signed char)VL; cyc += PN; } while(0)
+#define BRANCH8(VL)	BRANCH8P(VL, BR_PENALTY)
 #define PUSH(VAL)	cpu->stack[cpu->s--] = VAL
 #define POP()		cpu->stack[++cpu->s]
 #define SET_ZN(VAL)	do {Z = (VAL == 0) ; N =!!(VAL & 0x80);} while (0)
@@ -326,7 +329,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_BMI()	if(N) BRANCH8(op.pb[0])
 #define OP_BNE()	if(!Z) BRANCH8(op.pb[0])
 #define OP_BPL()	if(!N) BRANCH8(op.pb[0])
-#define OP_BRA()	BRANCH8(op.pb[0])
+#define OP_BRA()	BRANCH8P(op.pb[0], 0)
 #define OP_BRK()	++PC; PUSH(cpu->pch); PUSH(cpu->pcl); \
 			PUSH(pack_flags(cpu)|B_FLAG); \
 			CPU_READ_N(&op.pb[0], INT_VEC, 2); \
