@@ -279,7 +279,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define BRANCH8(VAL)	PC += (signed char)VAL
 #define PUSH(VAL)	cpu->stack[cpu->s--] = VAL
 #define POP()		cpu->stack[++cpu->s]
-#define SET_ZN(VAL)	cpu->f_z = (VAL == 0) ; cpu->f_n =!!(VAL & 0x80)
+#define SET_ZN(VAL)	do {Z = (VAL == 0) ; N =!!(VAL & 0x80);} while (0)
 /* http://www.6502.org/tutorials/vflag.html :
  As stated above, the second purpose of the carry flag is to indicate when the
  result of the addition or subtraction is outside the range 0 to 255,
@@ -376,10 +376,13 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_SAY()	tmp = A; A = Y; Y = tmp
 #define OP_SBC()	GET_M(am); tmp = A - M - (!C); \
 			V = !!(((A ^ tmp) & 0x80) && ((A ^ M) & 0x80)); \
-			SET_ZN((u8)tmp); \
-			if(BCD && D) { \
+			if(!(BCD && D)) SET_ZN((u8)tmp); \
+			else { \
+			if(CPU_TYPE == 0) SET_ZN((u8)tmp); \
 			if (((A & 0xf) - (!C)) < (M & 0xf)) tmp -= 6; \
-			if (tmp > 0x99) tmp -= 0x60; } \
+			if (tmp > 0x99) tmp -= 0x60; \
+			if(CPU_TYPE != 0) { Z = ((u8)tmp==0); N = !!((u8)tmp & 0x80); } \
+			} \
 			C = ((int)tmp >= 0); A = tmp
 #define OP_SEC()	C = 1
 #define OP_SED()	D = 1
