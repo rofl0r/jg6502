@@ -8,6 +8,50 @@ if len(sys.argv) != 2:
 	sys.stderr.write('example: %s 1 (generate table for 65c02)\n'%sys.argv[0])
 	sys.exit(1)
 
+# operations that read memory, when address modes indicates so
+r_ops = {
+	'lda' : 1,
+	'ldx' : 1,
+	'ldy' : 1,
+	'eor' : 1,
+	'and' : 1,
+	'ora' : 1,
+	'adc' : 1,
+	'sbc' : 1,
+	'cmp' : 1,
+	'bit' : 1,
+	'lax' : 1,
+	'lae' : 1,
+	'shs' : 1,
+	'nop' : 1,
+}
+
+rw_ops = {
+	'asl' : 1,
+	'lsr' : 1,
+	'rol' : 1,
+	'ror' : 1,
+	'inc' : 1,
+	'dec' : 1,
+	'slo' : 1,
+	'sre' : 1,
+	'rla' : 1,
+	'rra' : 1,
+	'isc' : 1,
+	'dcp' : 1,
+}
+
+w_ops = {
+	'sta' : 1,
+	'stx': 1,
+	'sty' : 1,
+	'stz' : 1,
+	'sax' : 1,
+	'sha' : 1,
+	'shx' : 1,
+	'shy' : 1,
+}
+
 pcbytes = {
 	'imp1' : 1,
 	'imp2' : 2,
@@ -151,6 +195,7 @@ def main():
 		if target in labels: continue
 		labels[target] = 1
 
+		opname = opmap[x]
 		op = opmap[x].upper()
 		if op[0] not in string.ascii_uppercase:
 			op = op[1:]
@@ -158,9 +203,17 @@ def main():
 		if op[-1:] in string.digits:
 			op = op[:-1] + '(%s)'%op[-1:]
 		else: op += '()'
+
+		# page cross penalty
+		pcp = 'u8 pcp = 0'
+		if cpu < 3 and addrmode[x] in ('abx', 'aby', 'izy', 'rel'):
+			if (addrmode[x] == 'rel') or (opname in r_ops) or \
+			(cpu > 0 and addrmode[x] == 'abx' and opname in rw_ops):
+				pcp = 'u8 pcp = 1'
+
 		addr = calcaddr(addrmode[x]) # address mode boilerplate
-		out.write('\tlab_%s: am = am_%s; TRACE("%s", am_%s); cpu->pc += %d; %s; %s; cyc += %d; CHKDONE(); DISPATCH();\n'% \
-		(target, addrmode[x], opmap[x], addrmode[x], pcbytes[addrmode[x]], addr, op, cycles[cpu][x]))
+		out.write('\tlab_%s: { enum address_mode am = am_%s; %s; TRACE("%s", am_%s); cpu->pc += %d; %s; %s; cyc += %d; CHKDONE(); DISPATCH(); }\n'% \
+		(target, addrmode[x], pcp, opmap[x], addrmode[x], pcbytes[addrmode[x]], addr, op, cycles[cpu][x]))
 	out.close()
 
 	tmap = { 0: '6502', 1: '65C02', 2: 'R65C02', 3: 'HUC6280' }

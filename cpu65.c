@@ -222,13 +222,19 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_izx:	GET_W_ZP((op.pb[0] + X)&0xff); \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
-	case am_izy:	GET_W_ZP(op.pb[0]); addr += Y; \
+	case am_izy:	GET_W_ZP(op.pb[0]); \
+			if(pcp && ((addr + Y)^addr)>0xff) cyc += pcp; \
+			addr += Y; \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_abs:	GET_W(am); \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
-	case am_abx:	addr=MAKELE16(op.pw[0]) + X; \
+	case am_abx:	addr=MAKELE16(op.pw[0]); \
+			if(pcp && ((addr + X)^addr)>0xff) cyc += pcp; \
+			addr += X; \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
-	case am_aby:	addr=MAKELE16(op.pw[0]) + Y; \
+	case am_aby:	addr=MAKELE16(op.pw[0]); \
+			if(pcp && ((addr + Y)^addr)>0xff) cyc += pcp; \
+			addr += Y; \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_abi:	addr=MAKELE16(op.pw[0]); \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 2); \
@@ -278,8 +284,15 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 	}
 #endif
 
-#define BRANCH8P(VL, PN)do {PC += (signed char)VL; cyc += PN; } while(0)
-#define BRANCH8(VL)	BRANCH8P(VL, BR_PENALTY)
+#define COND_BR8P(COND, TARGET, PENALTY) \
+			do { if(!(COND)) break; \
+			unsigned pcn = PC + (signed char) TARGET; \
+			cyc += PENALTY; \
+			cyc += (pcp && ((pcn&0xff00) != (PC&0xff00))) ?pcp:0; \
+			PC = pcn; } while(0)
+#define COND_BR8(COND, TARGET) \
+			COND_BR8P(COND, TARGET, BR_PENALTY)
+
 #define PUSH(VAL)	cpu->stack[cpu->s--] = VAL
 #define POP()		cpu->stack[++cpu->s]
 #define SET_ZN(VAL)	do {Z = (VAL == 0) ; N =!!(VAL & 0x80);} while (0)
@@ -315,28 +328,28 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_AND()	GET_M(am); A = A & M ; SET_ZN(A)
 #define OP_ASL()	GET_M(am); C = !!(M & 0x80); tmp = M << 1; \
 			SET_M(am, tmp); SET_ZN(M)
-#define OP_BBR(BIT)	if(!(cpu->zp[op.pb[0]] & (1 << BIT))) BRANCH8(op.pb[1])
-#define OP_BBS(BIT)	if(cpu->zp[op.pb[0]] & (1 << BIT)) BRANCH8(op.pb[1])
-#define OP_BCC()	if(!C) BRANCH8(op.pb[0])
-#define OP_BCS()	if(C) BRANCH8(op.pb[0])
-#define OP_BEQ()	if(Z) BRANCH8(op.pb[0])
+#define OP_BBR(BIT)	COND_BR8(!(cpu->zp[op.pb[0]] & (1 << BIT)), op.pb[1])
+#define OP_BBS(BIT)	COND_BR8(cpu->zp[op.pb[0]] & (1 << BIT), op.pb[1])
+#define OP_BCC()	COND_BR8(!C, op.pb[0])
+#define OP_BCS()	COND_BR8(C, op.pb[0])
+#define OP_BEQ()	COND_BR8(Z, op.pb[0])
 			/* attention: BIT imm (added to 65c02) only affects Z
 			   http://www.6502.org/tutorials/65c02opcodes.html
 			   this might be different on HuC6280, official doc
 			   doesn't mention anything being different for imm */
 #define OP_BIT()	GET_M(am); tmp = A & M; Z=(tmp == 0); \
 			if(am != am_imm) {N=!!(M & 0x80); V=!!(M & 0x40);}
-#define OP_BMI()	if(N) BRANCH8(op.pb[0])
-#define OP_BNE()	if(!Z) BRANCH8(op.pb[0])
-#define OP_BPL()	if(!N) BRANCH8(op.pb[0])
-#define OP_BRA()	BRANCH8P(op.pb[0], 0)
+#define OP_BMI()	COND_BR8(N, op.pb[0])
+#define OP_BNE()	COND_BR8(!Z, op.pb[0])
+#define OP_BPL()	COND_BR8(!N, op.pb[0])
+#define OP_BRA()	COND_BR8P(1, op.pb[0], 0)
 #define OP_BRK()	++PC; PUSH(cpu->pch); PUSH(cpu->pcl); \
 			PUSH(pack_flags(cpu)|B_FLAG); \
 			CPU_READ_N(&op.pb[0], INT_VEC, 2); \
 			PC = MAKELE16(op.pw[0]); T = T_INIT; I = 1; B = 1; \
 			if(!(INT_MASK & D_FLAG)) D = 0
-#define OP_BVC()	if(!V) BRANCH8(op.pb[0])
-#define OP_BVS()	if(V) BRANCH8(op.pb[0])
+#define OP_BVC()	COND_BR8(!V, op.pb[0])
+#define OP_BVS()	COND_BR8(V, op.pb[0])
 #define OP_CLC()	C = 0
 #define OP_CLD()	D = 0
 #define OP_CLI()	I = 0
