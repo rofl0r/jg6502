@@ -304,7 +304,7 @@ opcode,mnemonic,address_mode,chiptype
 0x9c,@shy,abx,0
 0x9e,@shx,aby,0
 0x9f,@ahx,aby,0
-0xa3,@lax,izy,0
+0xa3,@lax,izx,0
 0xa7,@lax,zp,0
 0xab,@lax,imm,0
 0xaf,@lax,abs,0
