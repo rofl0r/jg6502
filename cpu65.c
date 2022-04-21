@@ -20,7 +20,6 @@
 #ifndef CPU_NO_BCD
 #define BCD 1
 #else
-#undef CPU_NO_BCD
 #define BCD 0
 #endif
 
