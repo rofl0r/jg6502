@@ -204,8 +204,10 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 			addr = MAKELE16(addr); break; \
 	}
 
-/* get 16 bit value into addr from zeropage */
-#define GET_W_ZP(N) memcpy(&addr, cpu->zp+(N), 2); addr = MAKELE16(addr)
+/* get 16 bit value into addr from zeropage
+   the second byte of the address might wrap around if N == 0xff */
+#define GET_W_ZP(N) addr = cpu->zp[(N)] | (cpu->zp[((N)+1)&0xff] << 8)
+//#define GET_W_ZP(N) memcpy(&addr, cpu->zp+(N), 2); addr = MAKELE16(addr)
 
 #define GET_M(AM) \
 	switch(AM) { \
