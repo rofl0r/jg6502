@@ -2,8 +2,15 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifdef CPU_COMMENT_OPS
+#define OPSTART(HEX, NAME) __asm__ volatile ("# OPSTART: " # HEX " " # NAME)
+#else
+#define OPSTART(HEX, NAME) do{}while(0)
+#endif
+
 #define u8 uint8_t
 #define u16 uint16_t
+#define flag uint8_t
 
 #define CPU_TYPE_6502 0
 #define CPU_TYPE_65C02 1
@@ -103,19 +110,29 @@ enum address_mode {
 	am_acc    /* accumulator. 3.20 in C8MSM (ACC). 1 byte insn. */
 };
 
+enum cpu_status {
+	cs_normal,
+	cs_jammed,
+	cs_stopped,
+	cs_waiting,
+};
+
 struct cpu65 {
 	TUP16(pc, pch, pcl);
-	u8 s, a, x, y, i;
-	u8 f_n; /* sign */
-	u8 f_v; /* overflow */
-	u8 f_t; /* memory operation - HuC6280 only */
-	u8 f_b; /* breakpoint */
-	u8 f_d; /* bcd mode */
-	u8 f_i; /* interrupt disable */
-	u8 f_z; /* zero */
-	u8 f_c; /* carry */
+	u8 s, a, x, y;
+	flag f_n; /* sign */
+	flag f_v; /* overflow */
+	flag f_t; /* memory operation - HuC6280 only */
+	flag f_b; /* breakpoint */
+	flag f_d; /* bcd mode */
+	flag f_i; /* interrupt disable */
+	flag f_z; /* zero */
+	flag f_c; /* carry */
 	u8 *zp;
 	u8 *stack;
+	enum cpu_status cs; /* special cpu status, might be signaled by KIL, WAI, STP.
+			       this is not automatically reset, so if you intend to use
+			       it set it to cs_normal before cpu65_exec(). */
 	void *user; /* user data. */
 	void (*trace_print) (struct cpu65*, char*);
 };
@@ -225,17 +242,17 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 	case am_izx:	GET_W_ZP((op.pb[0] + X)&0xff); \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_izy:	GET_W_ZP(op.pb[0]); \
-			if(pcp && ((addr + Y)^addr)>0xff) cyc += pcp; \
+			if(pcp && ((addr + Y)^addr)>0xff) ADDCYC(pcp); \
 			addr += Y; \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_abs:	GET_W(am); \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_abx:	addr=MAKELE16(op.pw[0]); \
-			if(pcp && ((addr + X)^addr)>0xff) cyc += pcp; \
+			if(pcp && ((addr + X)^addr)>0xff) ADDCYC(pcp); \
 			addr += X; \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_aby:	addr=MAKELE16(op.pw[0]); \
-			if(pcp && ((addr + Y)^addr)>0xff) cyc += pcp; \
+			if(pcp && ((addr + Y)^addr)>0xff) ADDCYC(pcp); \
 			addr += Y; \
 			m = &op.pb[4]; CPU_READ_N(m, addr, 1); break; \
 	case am_abi:	addr=MAKELE16(op.pw[0]); \
@@ -289,8 +306,8 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define COND_BR8P(COND, TARGET, PENALTY) \
 			do { if(!(COND)) break; \
 			unsigned pcn = PC + (signed char) TARGET; \
-			cyc += PENALTY; \
-			cyc += (pcp && ((pcn&0xff00) != (PC&0xff00))) ?pcp:0; \
+			ADDCYC(PENALTY); \
+			ADDCYC((pcp && ((pcn&0xff00) != (PC&0xff00))) ?pcp:0); \
 			PC = pcn; } while(0)
 #define COND_BR8(COND, TARGET) \
 			COND_BR8P(COND, TARGET, BR_PENALTY)
@@ -382,7 +399,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 			PC = MAKELE16(op.pw[2]); \
 			} else { GET_W(am); PC = addr; }
 #define OP_JSR()	--PC; PUSH(cpu->pch); PUSH(cpu->pcl); PC = MAKELE16(op.pw[0])
-#define OP_KIL()	fflush(stdout); __asm__("int3"); for(;;)
+#define OP_KIL()	cpu->cs = cs_jammed; goto done
 #define OP_LAS()	GET_M(am); cpu->s &= M; A = X = cpu->s; SET_ZN(A)
 #define OP_LAX()	GET_M(am); A = X = M; SET_ZN(A)
 #define OP_LDA()	LOAD(A)
@@ -393,7 +410,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_LXA()	GET_M(am); A |= 0xff; A &= M; X = A; SET_ZN(A)
 #define OP_NOP()	if(am == am_abx && pcp) { \
 			addr=MAKELE16(op.pw[0]); \
-			if(((addr + X)^addr)>0xff) cyc += pcp; }
+			if(((addr + X)^addr)>0xff) ADDCYC(pcp); }
 #define OP_ORA()	GET_M(am); A |= M; SET_ZN(A)
 #define OP_PHA()	PUSH(A)
 #define OP_PHP()	PUSH(pack_flags(cpu))
@@ -445,7 +462,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_SMB(BIT)	cpu->zp[op.pb[0]] |= (1 << BIT)
 #define OP_SRE()	OP_LSR(); OP_EOR()
 #define OP_STA()	GET_M(am); SET_M(am, A)
-#define OP_STP()	break // TODO this stops the cpu, and needs a reset. should this set some internal flag?
+#define OP_STP()	cpu->cs = cs_stopped; goto done // this stops the cpu, and needs a reset
 #define OP_STX()	GET_M(am); SET_M(am, X)
 #define OP_STY()	GET_M(am); SET_M(am, Y)
 #define OP_STZ()	GET_M(am); SET_M(am, 0)
@@ -471,7 +488,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_TXA()	A = X; SET_ZN(A)
 #define OP_TXS()	cpu->s = X
 #define OP_TYA()	A = Y; SET_ZN(A)
-#define OP_WAI()	break // TODO: wait for interrupt - we should probably set a flag
+#define OP_WAI()	cpu->cs = cs_waiting; goto done // wait for interrupt
 #define OP_XAA()	GET_M(am); A = X & M; SET_ZN(A)
 
 #ifdef CPU_DEBUG
@@ -506,6 +523,14 @@ char *trace_fmt(enum address_mode am, u8 p[]) {
 }
 #endif
 
+#ifdef CPU_NO_COUNT_CYCLES
+#define CHKDONE() do{}while(0)
+#define ADDCYC(X) do{}while(0)
+#else
+#define CHKDONE() if (cyc >= mincycles) break;
+#define ADDCYC(X) do { cyc+=(X); } while(0)
+#endif
+
 unsigned cpu65_exec(struct cpu65 *cpu, unsigned mincycles) {
 	struct {
 		u8 align; // needed for alignment of 16 bit params
@@ -518,8 +543,8 @@ unsigned cpu65_exec(struct cpu65 *cpu, unsigned mincycles) {
 	} op;
 	u8 *m; // points to the memory operand of address mode
 	u16 addr; // temporary storage of address needed more than once.
-	enum address_mode am;
-	unsigned cyc = 0, tmp, tmp2;
+	//enum address_mode am;
+	unsigned cyc = 0; //unsigned tmp, tmp2;
 
 #define OPDEF(N, L)  [N] = &&lab_ ## L
 	static void *opdisp[256] = {
@@ -540,10 +565,10 @@ unsigned cpu65_exec(struct cpu65 *cpu, unsigned mincycles) {
 #endif
 #define FETCH_OP() do { CPU_READ_N(&op.op, cpu->pc, PC_MAX_FETCH); } while(0)
 #define DISPATCH() do { FETCH_OP(); goto *opdisp[op.op]; } while(0)
-#define CHKDONE() if(cyc >= mincycles) break;
 	do {
 		DISPATCH();
 		#include "oplabels.h"
 	} while(0);
+done:
 	return cyc;
 }

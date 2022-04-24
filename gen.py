@@ -213,8 +213,9 @@ def main():
 				pcp = 'u8 pcp = 1'
 
 		addr = calcaddr(addrmode[x]) # address mode boilerplate
-		out.write('\tlab_%s: { enum address_mode am = am_%s; %s; TRACE("%s", am_%s); cpu->pc += %d; %s; %s; cyc += %d; CHKDONE(); DISPATCH(); }\n'% \
-		(target, addrmode[x], pcp, opmap[x], addrmode[x], pcbytes[addrmode[x]], addr, op, cycles[cpu][x]))
+		out.write('\t#undef am\n\t#define am am_%s\n'%addrmode[x])
+		out.write('\tlab_%s: { OPSTART(0x%02x, %s); unsigned tmp, tmp2;/*enum address_mode am = am_%s*/; %s; TRACE("%s", am_%s); cpu->pc += %d; %s; %s; cyc += %d; CHKDONE(); DISPATCH(); }\n'% \
+		(target, x, target, addrmode[x], pcp, opmap[x], addrmode[x], pcbytes[addrmode[x]], addr, op, cycles[cpu][x]))
 	out.close()
 
 	tmap = { 0: '6502', 1: '65C02', 2: 'R65C02', 3: 'HUC6280' }
