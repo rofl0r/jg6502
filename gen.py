@@ -132,10 +132,10 @@ def calcaddr(addrmode):
 
 cpu = int(sys.argv[1])
 no_undocumented = os.environ['NOUNDOC'] if 'NOUNDOC' in os.environ else 0
-# XXX debug
-no_undocumented = 1
 # 65c02 have no undocumented opcodes, all prev. undoc. are nops
-if cpu > 0 and cpu != 3: no_undocumented = 0
+if no_undocumented and cpu > 0 and cpu != 3:
+	print ("disabling NOUNDOC setting due to selected cpu")
+	no_undocumented = 0
 
 def return_all(row, ctx):
 	return 1
