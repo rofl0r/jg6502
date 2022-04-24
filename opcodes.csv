@@ -306,7 +306,7 @@ opcode,mnemonic,address_mode,chiptype
 0x9f,@ahx,aby,0
 0xa3,@lax,izx,0
 0xa7,@lax,zp,0
-0xab,@lax,imm,0
+0xab,@lxa,imm,0
 0xaf,@lax,abs,0
 0xb2,@kil,imp1,0
 0xb3,@lax,izy,0
@@ -316,7 +316,7 @@ opcode,mnemonic,address_mode,chiptype
 0xc2,@nop,imm,0
 0xc3,@dcp,izx,0
 0xc7,@dcp,zp,0
-0xcb,@axs,imm,0
+0xcb,@sbx,imm,0
 0xcf,@dcp,abs,0
 0xd2,@kil,imp1,0
 0xd3,@dcp,izy,0
