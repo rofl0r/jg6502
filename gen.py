@@ -195,11 +195,12 @@ def main():
 		if target in labels: continue
 		labels[target] = 1
 
-		opname = opmap[x]
-		op = opmap[x].upper()
-		if op[0] not in string.ascii_uppercase:
+		op = opmap[x]
+		if op[0] not in string.ascii_lowercase:
 			op = op[1:]
-		op = 'OP_' + op
+		opname = op
+
+		op = 'OP_' + op.upper()
 		if op[-1:] in string.digits:
 			op = op[:-1] + '(%s)'%op[-1:]
 		else: op += '()'
