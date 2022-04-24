@@ -33,6 +33,7 @@
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #define TUP16(F_, A_, B_) union {struct { uint8_t B_, A_; }; uint16_t F_;}
+/* FIXME this is a misnomer, its purpose is to switch to and from host to little end */
 #define MAKELE16(VAL) VAL
 #else
 #define TUP16(F_, A_, B_) union {struct { uint8_t A_, B_; }; uint16_t F_;}
@@ -313,7 +314,6 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 			C=((int)tmp >= 0)
 #define LOAD(VAL)	GET_M(am); VAL = M; SET_ZN(VAL)
 
-
 #define OP_ADC()	GET_M(am); tmp = A + M + C; \
 			if(BCD && D) { if(CPU_TYPE == 0) Z = ((u8)tmp == 0); \
 			if (((A & 0xf) + (M & 0xf) + C) > 9) tmp += 6; \
@@ -326,9 +326,16 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 			} else { \
 			V = !((A ^ M) & 0x80) && ((A ^ tmp) & 0x80); \
 			C = tmp>0xff; A = tmp; SET_ZN(A); }
+#define OP_AHX()	GET_M(am); tmp = A & X & ((addr >> 8)+1); SET_M(am, tmp)
+#define OP_ALR()	GET_M(am); tmp = A & M; C = tmp & 1; A = tmp >> 1; SET_ZN(A)
+#define OP_ANC()	SET_ZN(A); A = A & op.pb[0] ; SET_ZN(A); C = N
 #define OP_AND()	GET_M(am); A = A & M ; SET_ZN(A)
+#define OP_ARR()	GET_M(am); tmp = A & M; A = (C << 7) | tmp >> 1; \
+			C = !!(tmp & 0x80); SET_ZN(A); \
+			V = (A >> 6 ^ A >> 5) & 1
 #define OP_ASL()	GET_M(am); C = !!(M & 0x80); tmp = M << 1; \
 			SET_M(am, tmp); SET_ZN(M)
+#define OP_AXS()	GET_M(am); tmp = A & X ; SET_M(am, tmp)
 #define OP_BBR(BIT)	COND_BR8(!(cpu->zp[op.pb[0]] & (1 << BIT)), op.pb[1])
 #define OP_BBS(BIT)	COND_BR8(cpu->zp[op.pb[0]] & (1 << BIT), op.pb[1])
 #define OP_BCC()	COND_BR8(!C, op.pb[0])
@@ -358,6 +365,8 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_CMP()	CMP(A)
 #define OP_CPX()	CMP(X)
 #define OP_CPY()	CMP(Y)
+#define OP_DCP()	GET_M(am); tmp = M-1; SET_M(am, tmp); tmp = A - M; SET_ZN(tmp); \
+                        C=((int)tmp >= 0)
 #define OP_DEC()	GET_M(am); tmp = M - 1; SET_M(am, tmp); SET_ZN(M)
 #define OP_DEX()	--X ; SET_ZN(X)
 #define OP_DEY()	--Y ; SET_ZN(Y)
@@ -365,14 +374,26 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_INC()	GET_M(am); tmp = M + 1; SET_M(am, tmp); SET_ZN(M)
 #define OP_INX()	++X ; SET_ZN(X)
 #define OP_INY()	++Y ; SET_ZN(Y)
-#define OP_JMP()	GET_W(am); cpu->pc = addr
+#define OP_ISC()	OP_INC(); OP_SBC()
+#define OP_JMP()	if(CPU_TYPE == 0 && am == am_abi && op.pb[0] == 0xff) { \
+			/* emulate nmos 6502 jump bug */ \
+			CPU_READ_N(&op.pb[4], (op.pb[1] << 8) | 0xff, 1); \
+			CPU_READ_N(&op.pb[5], (op.pb[1] << 8) | 0x00, 1); \
+			PC = MAKELE16(op.pw[2]); \
+			} else { GET_W(am); PC = addr; }
 #define OP_JSR()	--PC; PUSH(cpu->pch); PUSH(cpu->pcl); PC = MAKELE16(op.pw[0])
-#define OP_KIL()	__asm__("int3"); for(;;)
+#define OP_KIL()	fflush(stdout); __asm__("int3"); for(;;)
+#define OP_LAS()	GET_M(am); cpu->s &= M; A = X = cpu->s; SET_ZN(A)
+#define OP_LAX()	GET_M(am); A = X = M; SET_ZN(A)
 #define OP_LDA()	LOAD(A)
 #define OP_LDX()	LOAD(X)
 #define OP_LDY()	LOAD(Y)
 #define OP_LSR()	GET_M(am); C = M & 1; tmp = M >> 1; SET_ZN(tmp); SET_M(am, tmp)
-#define OP_NOP()
+/* using the magic constant of 0xff, blargg test #2 passes which was verified on real NES. */
+#define OP_LXA()	GET_M(am); A |= 0xff; A &= M; X = A; SET_ZN(A)
+#define OP_NOP()	if(am == am_abx && pcp) { \
+			addr=MAKELE16(op.pw[0]); \
+			if(((addr + X)^addr)>0xff) cyc += pcp; }
 #define OP_ORA()	GET_M(am); A |= M; SET_ZN(A)
 #define OP_PHA()	PUSH(A)
 #define OP_PHP()	PUSH(pack_flags(cpu))
@@ -383,12 +404,16 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_PLX()	X = POP() ; SET_ZN(X)
 #define OP_PLY()	Y = POP() ; SET_ZN(Y)
 #define OP_RMB(BIT)	cpu->zp[op.pb[0]] &= ~(1 << BIT)
+#define OP_RLA()	OP_ROL(); OP_AND()
 #define OP_ROL()	GET_M(am); tmp = C; C = !!(M & 0x80); tmp |= (M << 1); \
 			SET_M(am, tmp); SET_ZN(M)
 #define OP_ROR()	GET_M(am); tmp2 = M & 1; tmp = (C << 7) | (M >> 1); \
 			SET_M(am, tmp); C = tmp2; SET_ZN(M)
+#define OP_RRA()	OP_ROR(); OP_ADC()
 #define OP_RTI()	unpack_flags(cpu, POP()); cpu->pcl = POP(); cpu->pch = POP()
 #define OP_RTS()	cpu->pcl = POP(); cpu->pch = POP(); ++PC;
+/* these 2 are the OFFICIAL HUC6280 opcodes, not the undocumented 6502 ones,
+   we call the latter AXS and SHY */
 #define OP_SAX()	tmp = A; A = X; X = tmp
 #define OP_SAY()	tmp = A; A = Y; Y = tmp
 #define OP_SBC()	GET_M(am); tmp = A - M - (!C); \
@@ -401,17 +426,32 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 			if(CPU_TYPE != 0) { Z = ((u8)tmp==0); N = !!((u8)tmp & 0x80); } \
 			} \
 			C = ((int)tmp >= 0); A = tmp
+/* special case AXS variant with immediate */
+#define OP_SBX()	tmp = (A & X) - op.pb[0]; SET_ZN(tmp); C=((int)tmp >= 0); X=tmp
 #define OP_SEC()	C = 1
 #define OP_SED()	D = 1
 #define OP_SEI()	I = 1
 #define OP_SET()	T = 1
+/* first param: addressing mode using x or y, second: data using x or y */
+#define SHY_SHX(A_XY, D_XY) \
+			op.pb[2] = D_XY & (op.pb[1]+1); \
+			addr = (op.pb[0] + A_XY)&0xff; \
+			addr |= op.pb[2] << 8; \
+			CPU_WRITE_N(&op.pb[2], addr, 1)
+#define OP_SHY()	SHY_SHX(X, Y)
+#define OP_SHX()	SHY_SHX(Y, X)
+#define OP_SLO()	GET_M(am); C = !!(M & 0x80); tmp = M << 1; \
+                        SET_M(am, tmp); A |= M; SET_ZN(A)
 #define OP_SMB(BIT)	cpu->zp[op.pb[0]] |= (1 << BIT)
+#define OP_SRE()	OP_LSR(); OP_EOR()
 #define OP_STA()	GET_M(am); SET_M(am, A)
 #define OP_STP()	break // TODO this stops the cpu, and needs a reset. should this set some internal flag?
 #define OP_STX()	GET_M(am); SET_M(am, X)
 #define OP_STY()	GET_M(am); SET_M(am, Y)
 #define OP_STZ()	GET_M(am); SET_M(am, 0)
 #define OP_SXY()	tmp = X; X = Y; Y = tmp
+#define OP_TAS()	GET_M(am); cpu->s = A & X; tmp = cpu->s & ((addr >> 8)+1); \
+			SET_M(am, tmp)
 #define OP_TAX()	X = A; SET_ZN(A)
 #define OP_TAY()	Y = A; SET_ZN(A)
 #define OP_TRB()	GET_M(am); tmp = (~A) & M; Z = (!(A & M)); SET_M(am, tmp)
@@ -432,6 +472,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_TXS()	cpu->s = X
 #define OP_TYA()	A = Y; SET_ZN(A)
 #define OP_WAI()	break // TODO: wait for interrupt - we should probably set a flag
+#define OP_XAA()	GET_M(am); A = X & M; SET_ZN(A)
 
 #ifdef CPU_DEBUG
 #include <stdio.h>
