@@ -2,10 +2,16 @@ from csvdb import CSVDB
 import sys, string, os
 from cycles import cycles
 
+tmap = { 0: '2A03', 1: '6502', 2: '65C02', 3: 'R65C02', 4: 'HUC6280' }
+
+
 if len(sys.argv) != 2:
 	sys.stderr.write('error: need to specify chip type\n')
-	sys.stderr.write('chip type: 0: 6502, 1: 65c02(rev1), 2:wdc 65c02, 3: huc6280\n')
-	sys.stderr.write('example: %s 1 (generate table for 65c02)\n'%sys.argv[0])
+	sys.stderr.write('chip type: ')
+	for k in sorted(tmap.keys()):
+		sys.stderr.write('%d: %s, '%(k, tmap[k]))
+	sys.stderr.write('\n')
+	sys.stderr.write('example: %s 2 (generate table for 65c02)\n'%sys.argv[0])
 	sys.exit(1)
 
 # operations that read memory, when address modes indicates so
@@ -133,7 +139,7 @@ def calcaddr(addrmode):
 cpu = int(sys.argv[1])
 no_undocumented = os.environ['NOUNDOC'] if 'NOUNDOC' in os.environ else 0
 # 65c02 have no undocumented opcodes, all prev. undoc. are nops
-if no_undocumented and cpu > 0 and cpu != 3:
+if no_undocumented and cpu > 1 and cpu != 4:
 	print ("disabling NOUNDOC setting due to selected cpu")
 	no_undocumented = 0
 
@@ -207,9 +213,9 @@ def main():
 
 		# page cross penalty
 		pcp = 'u8 pcp = 0'
-		if cpu < 3 and addrmode[x] in ('abx', 'aby', 'izy', 'rel'):
+		if cpu < 4 and addrmode[x] in ('abx', 'aby', 'izy', 'rel'):
 			if (addrmode[x] == 'rel') or (opname in r_ops) or \
-			(cpu > 0 and addrmode[x] == 'abx' and opname in rw_ops):
+			(cpu > 1 and addrmode[x] == 'abx' and opname in rw_ops):
 				pcp = 'u8 pcp = 1'
 
 		addr = calcaddr(addrmode[x]) # address mode boilerplate
@@ -218,7 +224,6 @@ def main():
 		(target, x, target, addrmode[x], pcp, opmap[x], addrmode[x], pcbytes[addrmode[x]], addr, op, cycles[cpu][x]))
 	out.close()
 
-	tmap = { 0: '6502', 1: '65C02', 2: 'R65C02', 3: 'HUC6280' }
 	out = open('cpu65type.h', 'w')
 	out.write('#define CPU_TYPE CPU_TYPE_%s\n'%tmap[cpu])
 	out.close()

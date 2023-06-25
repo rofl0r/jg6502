@@ -12,15 +12,20 @@
 #define u16 uint16_t
 #define flag uint8_t
 
-#define CPU_TYPE_6502 0
-#define CPU_TYPE_65C02 1
-#define CPU_TYPE_R65C02 2
-#define CPU_TYPE_HUC6280 3
+#define CPU_TYPE_2A03 0
+#define CPU_TYPE_6502 1
+#define CPU_TYPE_65C02 2
+#define CPU_TYPE_R65C02 3
+#define CPU_TYPE_HUC6280 4
 
 #include "cpu65type.h"
 
 #ifndef CPU_TYPE
 #error need to set CPU_TYPE to one of the above list
+#endif
+
+#if CPU_TYPE == CPU_TYPE_2A03
+#define CPU_NO_BCD
 #endif
 
 /* define this if you don't want BCD, e.g. to emulate a Ricoh 2A03 as used in NES */
@@ -72,7 +77,7 @@
 // vector locations for HW interrupts: FFFE for the IRQ and FFFA for the NMI
 #define INT_VEC 0xfffe
 #define PLP_MASK (N_FLAG|Z_FLAG|C_FLAG|I_FLAG|D_FLAG|V_FLAG)
-# if CPU_TYPE > 0
+# if CPU_TYPE > CPU_TYPE_6502
 # define INT_MASK (~(D_FLAG))
 # else
 # define INT_MASK 0xff
@@ -332,14 +337,14 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define LOAD(VAL)	GET_M(am); VAL = M; SET_ZN(VAL)
 
 #define OP_ADC()	GET_M(am); tmp = A + M + C; \
-			if(BCD && D) { if(CPU_TYPE == 0) Z = ((u8)tmp == 0); \
+			if(BCD && D) { if(CPU_TYPE <= CPU_TYPE_6502) Z = ((u8)tmp == 0); \
 			if (((A & 0xf) + (M & 0xf) + C) > 9) tmp += 6; \
 			V = !((A ^ M) & 0x80) && ((A ^ tmp) & 0x80); \
-			if(CPU_TYPE == 0) N = !!(tmp & 0x80); \
+			if(CPU_TYPE <= CPU_TYPE_6502) N = !!(tmp & 0x80); \
 			else /* N = (tmp >= 0x120) */ ; \
 			if (tmp > 0x99) tmp += 96; \
 			C = tmp>0x99; A = tmp; \
-			if(CPU_TYPE != 0) { Z = (A==0); N = !!(A & 0x80); }\
+			if(CPU_TYPE > CPU_TYPE_6502) { Z = (A==0); N = !!(A & 0x80); }\
 			} else { \
 			V = !((A ^ M) & 0x80) && ((A ^ tmp) & 0x80); \
 			C = tmp>0xff; A = tmp; SET_ZN(A); }
@@ -392,7 +397,7 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 #define OP_INX()	++X ; SET_ZN(X)
 #define OP_INY()	++Y ; SET_ZN(Y)
 #define OP_ISC()	OP_INC(); OP_SBC()
-#define OP_JMP()	if(CPU_TYPE == 0 && am == am_abi && op.pb[0] == 0xff) { \
+#define OP_JMP()	if(CPU_TYPE <= CPU_TYPE_6502 && am == am_abi && op.pb[0] == 0xff) { \
 			/* emulate nmos 6502 jump bug */ \
 			CPU_READ_N(&op.pb[4], (op.pb[1] << 8) | 0xff, 1); \
 			CPU_READ_N(&op.pb[5], (op.pb[1] << 8) | 0x00, 1); \
@@ -437,10 +442,10 @@ static inline void unpack_flags(struct cpu65 *cpu, u8 f) {
 			V = !!(((A ^ tmp) & 0x80) && ((A ^ M) & 0x80)); \
 			if(!(BCD && D)) SET_ZN((u8)tmp); \
 			else { \
-			if(CPU_TYPE == 0) SET_ZN((u8)tmp); \
+			if(CPU_TYPE <= CPU_TYPE_6502) SET_ZN((u8)tmp); \
 			if (((A & 0xf) - (!C)) < (M & 0xf)) tmp -= 6; \
 			if (tmp > 0x99) tmp -= 0x60; \
-			if(CPU_TYPE != 0) { Z = ((u8)tmp==0); N = !!((u8)tmp & 0x80); } \
+			if(CPU_TYPE > CPU_TYPE_6502) { Z = ((u8)tmp==0); N = !!((u8)tmp & 0x80); } \
 			} \
 			C = ((int)tmp >= 0); A = tmp
 /* special case AXS variant with immediate */
